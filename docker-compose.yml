@@ -1,0 +1,174 @@
+version: "2.1"
+services:
+  localstack:
+    container_name: localstack
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+      - "4571:4571"
+      - "8080:8080"
+    environment:
+      SERVICES: "sqs,kms,iam,sts"
+      DEFAULT_REGION: "us-west-2"
+      HOSTNAME_EXTERNAL: "localstack"
+    volumes:
+      - "./volumes/localstack/seed.yaml:/init/seed.yaml"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.9
+  consul1:
+    container_name: consul1
+    image: consul:1.6.1
+    ports:
+      - "8401:8400"
+      - "8501:8500"
+      - "8601:53"
+    command:
+      - "consul"
+      - "agent"
+      - "-server"
+      - "-bind=172.30.0.11"
+      - "-client=172.30.0.11"
+      - "-data-dir=/var/lib/consul"
+      - "-ui"
+      - "-dns-port=53"
+      - "-retry-join=consul2"
+      - "-retry-join=consul3"
+      - "-bootstrap-expect=3"
+    volumes:
+      - "./volumes/consul1/data:/var/lib/consul"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.11
+  consul2:
+    container_name: consul2
+    image: consul:1.6.1
+    ports:
+      - "8402:8400"
+      - "8502:8500"
+      - "8602:53"
+    command:
+      - "consul"
+      - "agent"
+      - "-server"
+      - "-bind=172.30.0.12"
+      - "-client=172.30.0.12"
+      - "-data-dir=/var/lib/consul"
+      - "-ui"
+      - "-dns-port=53"
+      - "-retry-join=consul1"
+      - "-retry-join=consul3"
+      - "-bootstrap-expect=3"
+    volumes:
+      - "./volumes/consul2/data:/var/lib/consul"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.12
+  consul3:
+    container_name: consul3
+    image: consul:1.6.1
+    ports:
+      - "8403:8400"
+      - "8503:8500"
+      - "8603:53"
+    command:
+      - "consul"
+      - "agent"
+      - "-server"
+      - "-bind=172.30.0.13"
+      - "-client=172.30.0.13"
+      - "-data-dir=/var/lib/consul"
+      - "-ui"
+      - "-dns-port=53"
+      - "-retry-join=consul1"
+      - "-retry-join=consul2"
+      - "-bootstrap-expect=3"
+    volumes:
+      - "./volumes/consul3/data:/var/lib/consul"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.13
+  vault1:
+    container_name: vault1
+    depends_on:
+      - localstack
+      - consul1
+    image: vault:1.6.0
+    cap_add:
+      - IPC_LOCK
+    dns:
+      - 172.30.0.11
+    command:
+      - /bin/sh
+      - -c
+      - 'sleep 15 && vault operator init & vault server -config=/server.hcl'
+    volumes:
+      - "./volumes/vault1/config/server.hcl:/server.hcl"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.21
+    environment:
+      AWS_KMS_ENDPOINT: "http://localstack:4566"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      AWS_SESSION_TOKEN: "test"
+      VAULT_ADDR: http://vault1:8200
+  vault2:
+    container_name: vault2
+    depends_on:
+      - localstack
+      - consul2
+    image: vault:1.6.0
+    cap_add:
+      - IPC_LOCK
+    dns:
+      - 172.30.0.12
+    command:
+      - "vault"
+      - "server"
+      - "-config=/server.hcl"
+    volumes:
+      - "./volumes/vault2/config/server.hcl:/server.hcl"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.22
+    environment:
+      AWS_KMS_ENDPOINT: "http://localstack:4566"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      AWS_SESSION_TOKEN: "test"
+      VAULT_ADDR: http://vault2:8200
+  vault3:
+    container_name: vault3
+    depends_on:
+      - localstack
+      - consul3
+    image: vault:1.6.0
+    cap_add:
+      - IPC_LOCK
+    dns:
+      - 172.30.0.13
+    command:
+      - "vault"
+      - "server"
+      - "-config=/server.hcl"
+    volumes:
+      - "./volumes/vault3/config/server.hcl:/server.hcl"
+    networks:
+      ops:
+        ipv4_address: 172.30.0.23
+    environment:
+      AWS_KMS_ENDPOINT: "http://localstack:4566"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      AWS_SESSION_TOKEN: "test"
+      VAULT_ADDR: "http://vault3:8200"
+
+networks:
+  ops:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
